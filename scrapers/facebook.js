@@ -22,8 +22,8 @@ export async function scrapeFacebook({ urls = [], placeName = '' }) {
               source: 'facebook',
               sourceUrl: reviewUrl,
               placeName,
-              author: '',   // ถ้าต้องการ author: หา locator ของชื่อคนโพสต์เพิ่มได้
-              rating: null, // FB review เป็น recommendation yes/no มากกว่า
+              author: '',
+              rating: null,
               text,
               lang: 'th',
               publishedAt: null

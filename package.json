@@ -4,6 +4,7 @@
     "cheerio": "^1.0.0",
     "cors": "^2.8.5",
     "express": "^4.19.2",
+    "p-queue": "^8.1.1",
     "playwright": "1.55.0",
     "undici": "^6.19.8"
   },
