@@ -3,6 +3,8 @@ import express from 'express';
 import cors from 'cors';
 import crypto from 'crypto';
 import PQueue from 'p-queue';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
 // --- scrapers ---
 import { scrapeWongnai } from './scrapers/wongnai.js';
@@ -15,16 +17,14 @@ app.use(cors());
 app.use(express.json({ limit: '1mb' }));
 
 // ---------- config ----------
-const SCRAPE_SECRET = process.env.SCRAPE_SECRET || ''; // ถ้าใช้ HMAC ให้ตั้งค่า
-const CONCURRENCY = Number(process.env.CONCURRENCY || 6);
-const PER_SOURCE_MAX = Number(process.env.PER_SOURCE_MAX || 10);
+const SCRAPE_SECRET   = process.env.SCRAPE_SECRET || '';
+const CONCURRENCY     = Number(process.env.CONCURRENCY || 6);
+const PER_SOURCE_MAX  = Number(process.env.PER_SOURCE_MAX || 10);
 const TASK_TIMEOUT_MS = Number(process.env.TASK_TIMEOUT_MS || 45_000);
-const MAX_BATCH = Number(process.env.MAX_BATCH || 20);
+const MAX_BATCH       = Number(process.env.MAX_BATCH || 20);
 
-// in-memory job store (ถ้าต้องการ durable ให้ย้ายไป Redis/DB)
-const groupStore = new Map(); // jobGroupId -> { status:'running|done', results:[...], errors:[...], createdAt, callbackUrl }
-
-// global queue กันโหลด
+// in-memory job store
+const groupStore = new Map();
 const queue = new PQueue({ concurrency: CONCURRENCY });
 
 // ---------- utils ----------
@@ -40,23 +40,17 @@ function verifyHmac(req, res, next) {
   if (sig !== want) return res.status(401).json({ ok: false, error: 'bad signature' });
   next();
 }
-
 function dedupeReviews(items = []) {
   const seen = new Set();
   const out = [];
   for (const r of items) {
-    const key = [
-      r?.source || '',
-      r?.sourceUrl || '',
-      (r?.text || '').slice(0, 160)
-    ].join('|');
+    const key = [r?.source || '', r?.sourceUrl || '', (r?.text || '').slice(0, 160)].join('|');
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(r);
   }
   return out;
 }
-
 function limitPerSource(items = [], perSource = 10) {
   const bySource = {};
   for (const r of items) {
@@ -69,7 +63,6 @@ function limitPerSource(items = [], perSource = 10) {
     counts: Object.fromEntries(Object.entries(bySource).map(([k, v]) => [k, v.length]))
   };
 }
-
 function sortByPublishedAtDesc(arr) {
   arr.sort((a, b) => {
     const ta = a?.publishedAt ? Date.parse(a.publishedAt) : 0;
@@ -78,7 +71,6 @@ function sortByPublishedAtDesc(arr) {
   });
   return arr;
 }
-
 function withTimeout(promise, ms, label = 'task') {
   let timer;
   const t = new Promise((_, rej) => {
@@ -86,9 +78,7 @@ function withTimeout(promise, ms, label = 'task') {
   });
   return Promise.race([promise.finally(() => clearTimeout(timer)), t]);
 }
-
 function pickPlaceFields(place = {}) {
-  // กันส่ง payload ใหญ่จาก Get Place: เอาเฉพาะที่ต้องใช้สร้าง query
   return {
     placeId: place.placeId || place.id || '',
     name: place.name || place.displayName?.text || '',
@@ -101,28 +91,25 @@ function pickPlaceFields(place = {}) {
   };
 }
 
-// ---------- health ----------
-app.get('/', (_req, res) => {
-  res.json({
-    ok: true,
-    endpoints: ['/health', '/scrape', '/scrape/start', '/scrape/status/:jobGroupId']
-  });
+// ---------- serve static & LIFF ----------
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// serve /pages และ /pages/images
+app.use('/pages', express.static(path.join(__dirname, 'pages')));
+app.use('/images', express.static(path.join(__dirname, 'pages', 'images')));
+
+// root = LIFF form
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'pages', 'jab-jong-form.html'));
 });
+
+// health check
 app.get('/health', (_req, res) => res.send('ok'));
 
 // ===================================================================
-// 1) SYNC: POST /scrape  (สำหรับ 1 ร้าน — ใช้เหมือนเดิมได้)
+// 1) SYNC: POST /scrape
 // ===================================================================
-/**
- * body:
- * {
- *   place: { name, address, phone, ... }      // จาก Get Place (ตัดฟิลด์ยาวๆ ออก)
- *   sources: ["wongnai","tripadvisor","facebook","tiktok"],
- *   urls:    { wongnai:[...], tripadvisor:[...], facebook:[...] },
- *   queries: { tiktok:[...] },
- *   limits:  { perSource: 10 }
- * }
- */
 app.post('/scrape', verifyHmac, async (req, res) => {
   try {
     const { place = {}, sources = [], urls = {}, queries = {}, limits = {} } = req.body || {};
@@ -147,9 +134,7 @@ app.post('/scrape', verifyHmac, async (req, res) => {
     }
 
     const settled = await Promise.allSettled(tasks);
-    const flat = settled
-      .filter(s => s.status === 'fulfilled')
-      .flatMap(s => s.value || []);
+    const flat = settled.filter(s => s.status === 'fulfilled').flatMap(s => s.value || []);
 
     const deDuped = dedupeReviews(flat);
     const { flat: capped, counts } = limitPerSource(deDuped, perSource);
@@ -168,18 +153,8 @@ app.post('/scrape', verifyHmac, async (req, res) => {
 });
 
 // ===================================================================
-// 2) ASYNC: POST /scrape/start  (batch หลายร้าน + callback/polling)
+// 2) ASYNC: POST /scrape/start
 // ===================================================================
-/**
- * body:
- * {
- *   places: [ { ...from Get Place..., urls?, queries? }, ... ]   // ≤ MAX_BATCH
- *   sources: ["wongnai","tripadvisor","facebook","tiktok"],
- *   limits:  { perSource: 10 },
- *   callbackUrl: "https://<n8n>/webhook/line-callback",          // optional
- *   lang: "th"
- * }
- */
 app.post('/scrape/start', verifyHmac, async (req, res) => {
   try {
     const { places = [], sources = [], limits = {}, callbackUrl = '', lang = 'th' } = req.body || {};
@@ -197,7 +172,6 @@ app.post('/scrape/start', verifyHmac, async (req, res) => {
     const jobGroupId = `jg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     groupStore.set(jobGroupId, { status: 'running', results: [], errors: [], createdAt: Date.now(), callbackUrl });
 
-    // enqueue per place
     await Promise.all(places.map(async (placeRaw) => {
       const place = pickPlaceFields(placeRaw);
       const placeName = place.name || '';
@@ -221,24 +195,14 @@ app.post('/scrape/start', verifyHmac, async (req, res) => {
           }
 
           const settled = await Promise.allSettled(tasks);
-          const flat = settled
-            .filter(s => s.status === 'fulfilled')
-            .flatMap(s => s.value || []);
-
+          const flat = settled.filter(s => s.status === 'fulfilled').flatMap(s => s.value || []);
           const deDuped = dedupeReviews(flat);
           const { flat: capped, counts } = limitPerSource(deDuped, perSource);
           sortByPublishedAtDesc(capped);
 
-          // เก็บผลไว้ใน group
           const g = groupStore.get(jobGroupId);
           if (g) {
-            g.results.push({
-              place,
-              lang,
-              sources: counts,
-              total: capped.length,
-              items: capped
-            });
+            g.results.push({ place, lang, sources: counts, total: capped.length, items: capped });
           }
         } catch (err) {
           const g = groupStore.get(jobGroupId);
@@ -247,20 +211,13 @@ app.post('/scrape/start', verifyHmac, async (req, res) => {
       }, { priority: 1 });
     }));
 
-    // เมื่อคิวว่าง (idle) ให้สรุปผลและ callback (ถ้ามี)
     (async () => {
       await queue.onIdle();
       const g = groupStore.get(jobGroupId);
       if (!g) return;
       g.status = 'done';
 
-      const payload = {
-        ok: true,
-        jobGroupId,
-        lang,
-        results: g.results,
-        errors: g.errors
-      };
+      const payload = { ok: true, jobGroupId, lang, results: g.results, errors: g.errors };
 
       if (g.callbackUrl) {
         try {
@@ -269,7 +226,6 @@ app.post('/scrape/start', verifyHmac, async (req, res) => {
           if (SCRAPE_SECRET) headers['x-signature'] = hmac(body);
           await fetch(g.callbackUrl, { method: 'POST', headers, body });
         } catch (e) {
-          // เก็บ error ไว้เฉยๆ
           g.errors.push({ callbackUrl: g.callbackUrl, error: String(e?.message || e) });
         }
       }
@@ -288,15 +244,9 @@ app.get('/scrape/status/:jobGroupId', verifyHmac, (req, res) => {
   const { jobGroupId } = req.params || {};
   const g = groupStore.get(jobGroupId);
   if (!g) return res.status(404).json({ ok: false, error: 'not found' });
-  res.json({
-    ok: true,
-    jobGroupId,
-    status: g.status,
-    results: g.status === 'done' ? g.results : undefined,
-    errors: g.errors
-  });
+  res.json({ ok: true, jobGroupId, status: g.status, results: g.status === 'done' ? g.results : undefined, errors: g.errors });
 });
 
 // ---------- start ----------
 const port = process.env.PORT || 3000;
-app.listen(port, () => console.log('review-scraper up on :' + port));
+app.listen(port, () => console.log('server up on :' + port));
