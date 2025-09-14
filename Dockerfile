@@ -1,14 +1,14 @@
 # ---- Base
 FROM node:20-bullseye
 
-# เวลา + locale เผื่อ log/เวลานัดหมาย
+# ใช้ path กลางเก็บเบราว์เซอร์ ไม่ผูกกับ HOME ของ user
 ENV TZ=Asia/Bangkok \
-    NODE_ENV=production
+    NODE_ENV=production \
+    PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
-# โฟลเดอร์แอป
 WORKDIR /app
 
-# ติดตั้งฟอนต์และของจำเป็น (ให้เรนเดอร์ TH/CJK/Emoji สวย ๆ)
+# ฟอนต์ภาษาไทย/จีน/อีโมจิ + ของจำเป็น
 RUN apt-get update && apt-get install -y --no-install-recommends \
       fonts-noto \
       fonts-noto-cjk \
@@ -18,32 +18,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       curl \
     && rm -rf /var/lib/apt/lists/*
 
-# ติดตั้ง deps ของแอป (production only)
+# ติดตั้ง deps ของแอป (โหมดโปรดักชัน)
 COPY package*.json ./
 RUN npm ci --omit=dev
 
-# ติดตั้ง Chromium + system deps ของ Playwright
+# ติดตั้ง Chromium + system deps ให้เรียบร้อย (ตอนยังเป็น root)
 RUN npx playwright install --with-deps chromium
 
-# คัดลอกซอร์สโค้ด
+# ให้สิทธิ์ user node
+RUN mkdir -p /ms-playwright && chown -R node:node /app /ms-playwright
+
+# คัดลอกซอร์ส
 COPY . .
 
-# (ถ้าใช้ PM2 ก็ใส่ global ตรงนี้ได้ แต่ปัจจุบันไม่จำเป็น)
-
-# เปลี่ยนสิทธิ์เป็น user 'node' (ปลอดภัยกว่า root)
-RUN chown -R node:node /app
+# รันด้วย user ปลอดภัย
 USER node
 
-# พอร์ต API
+# Railway จะตั้ง PORT ให้อัตโนมัติ (server.js ต้องใช้ process.env.PORT)
 EXPOSE 3333
 
-# Healthcheck (จะสำเร็จเมื่อหน้า /pages/ โหลดได้)
-# ถ้าในแอปมี /health ก็เปลี่ยนเป็น /health ได้เลย
-HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
-  CMD node -e "fetch('http://localhost:3333/pages/jab-jong-form.html').then(r=>r.ok?process.exit(0):process.exit(1)).catch(()=>process.exit(1))"
-
-# ค่า concurrency (ปรับได้ตอน runtime)
+# ปรับ concurrency ได้ผ่าน ENV
 ENV SCRAPE_CONCURRENCY=2
 
-# สตาร์ตเซิร์ฟเวอร์
+# (ไม่จำเป็นต้องมี --shm-size บน Railway)
 CMD ["node", "server.js"]
