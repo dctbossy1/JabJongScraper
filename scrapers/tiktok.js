@@ -1,103 +1,110 @@
-import { withBrowser, tinyDelay } from '../utils/browser.js';
-import { normalizeReview } from '../utils/normalize.js';
+// scrapers/tiktok.js
+import { chromium } from 'playwright';
 
-async function gotoSearch(page, q) {
-  const url = `https://www.tiktok.com/search/video?q=${encodeURIComponent(q)}`;
-  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+async function autoScroll(page, { step = 800, totalSteps = 10, delay = 400 } = {}) {
+  for (let i = 0; i < totalSteps; i++) {
+    await page.mouse.wheel(0, step);
+    await sleep(delay);
+  }
+}
 
-  // กดปุ่มยอมรับคุกกี้ถ้ามี
+async function withBrowser(run) {
+  const browser = await chromium.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-blink-features=AutomationControlled'],
+  });
+  const context = await browser.newContext({
+    locale: 'th-TH',
+    viewport: { width: 1280, height: 800 },
+    userAgent:
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
+      '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  });
+  const page = await context.newPage();
   try {
-    await page.waitForSelector('[data-e2e="cookie-banner-accept-button"]', { timeout: 3000 });
-    await page.click('[data-e2e="cookie-banner-accept-button"]');
-    await tinyDelay(400, 800);
-  } catch {}
-}
-
-async function readSIGI(page) {
-  return await page.evaluate(() => {
-    const el = document.querySelector('script#SIGI_STATE');
-    if (!el) return null;
-    try { return JSON.parse(el.textContent); } catch { return null; }
-  });
-}
-
-async function collectVideoLinks(page, max = 30) {
-  const links = new Set();
-  for (let i = 0; i < 5; i++) {
-    const found = await page.$$eval('a[href*="/video/"]', as => as.map(a => a.href));
-    found.forEach(h => links.add(h));
-    if (links.size >= max) break;
-    await page.evaluate(() => window.scrollBy(0, document.body.scrollHeight));
-    await tinyDelay(500, 900);
+    const out = await run({ page, context, browser });
+    await context.close(); await browser.close();
+    return out;
+  } catch (e) {
+    await context.close(); await browser.close();
+    throw e;
   }
-  return Array.from(links).slice(0, max);
 }
 
-async function extractVideosFromSearch(page, placeName) {
-  const out = [];
-  const data = await readSIGI(page);
+/**
+ * scrapeTikTok: รับ { place, queries[], limit } => คืน [{source, sourceUrl, placeName, text, author, likeText}]
+ */
+export async function scrapeTikTok({ place = {}, queries = [], limit = 6 }) {
+  if (!Array.isArray(queries) || queries.length === 0) return [];
 
-  if (data?.ItemModule && typeof data.ItemModule === 'object') {
-    for (const [vid, v] of Object.entries(data.ItemModule)) {
-      const caption = (v?.desc || '').trim();
-      out.push({
-        url: `https://www.tiktok.com/@${v?.author}/video/${vid}`,
-        caption,
-        author: v?.author || '',
-        createTime: v?.createTime ? new Date(Number(v.createTime) * 1000).toISOString() : null
-      });
-    }
-  }
+  const base = 'https://www.tiktok.com/search?q=';
+  const collected = new Map();
 
-  // fallback ถ้า SIGI ว่าง
-  if (out.length === 0) {
-    const links = await collectVideoLinks(page, 20);
-    for (const url of links) {
-      out.push({ url, caption: '', author: '', createTime: null });
-    }
-  }
+  await withBrowser(async ({ page }) => {
+    for (const q of queries) {
+      const url = `${base}${encodeURIComponent(q)}&t=${Date.now()}`;
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60_000 });
 
-  return out.slice(0, 10).map(x => normalizeReview({
-    source: 'tiktok',
-    sourceUrl: x.url,
-    placeName,
-    author: x.author,
-    rating: null,
-    text: x.caption,
-    lang: null,
-    publishedAt: x.createTime
-  }));
-}
-
-export async function scrapeTikTok({ queries = [], placeName = '' }) {
-  const safeQueries = queries
-    .map(q => String(q).replace(/"+/g, '').trim())
-    .filter(Boolean);
-
-  const out = [];
-  await withBrowser(async (page) => {
-    // ปรับ User-Agent และ header
-    await page.setUserAgent(
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
-    );
-    await page.setExtraHTTPHeaders({
-      'Accept-Language': 'th-TH,th;q=0.9,en-US;q=0.8,en;q=0.7'
-    });
-    await page.evaluateOnNewDocument(() => {
-      Object.defineProperty(navigator, 'webdriver', { get: () => false });
-    });
-
-    for (const q of safeQueries.slice(0, 5)) {
+      // กดยอมรับคุกกี้ถ้ามี
       try {
-        await gotoSearch(page, q);
-        await tinyDelay(1200, 1800);
-        const items = await extractVideosFromSearch(page, placeName);
-        out.push(...items);
-        if (out.length >= 10) break;
-      } catch (e) {
-        // ลองคำถัดไป
+        const btns = page.locator('button:has-text("Accept all"), button:has-text("ยอมรับทั้งหมด")');
+        if (await btns.count()) await btns.first().click({ timeout: 3000 }).catch(() => {});
+      } catch {}
+
+      await page.waitForTimeout(1200);
+      await autoScroll(page, { totalSteps: 10, delay: 400 });
+
+      // เก็บการ์ดวิดีโอบนหน้าค้นหา
+      const cards = await page.locator('a[href*="/video/"]').elementHandles();
+      for (const h of cards) {
+        if (collected.size >= limit) break;
+        const href = await h.getAttribute('href');
+        if (!href) continue;
+
+        const root = await h.evaluateHandle((a) => a.closest('[data-e2e], article, div'));
+        let caption = '', author = '', likeTxt = '';
+
+        if (root) {
+          caption =
+            (await root.evaluate((el) => {
+              const cand = el.querySelector('[data-e2e="video-desc"], [data-e2e*="desc"], p, span');
+              return cand ? cand.textContent : '';
+            })) || '';
+          author =
+            (await root.evaluate((el) => {
+              const cand =
+                el.querySelector('[data-e2e="video-author-name"], [data-e2e*="author"], a[href*="@"]') ||
+                el.querySelector('span[class*="author"]');
+              return cand ? cand.textContent : '';
+            })) || '';
+          likeTxt =
+            (await root.evaluate((el) => {
+              const cand =
+                el.querySelector('[data-e2e="like-count"], [data-e2e*="like"], [title*="like"]') ||
+                el.querySelector('strong, span[title]');
+              return cand ? cand.textContent : '';
+            })) || '';
+        }
+
+        const absolute = href.startsWith('http') ? href : `https://www.tiktok.com${href}`;
+        if (!collected.has(absolute)) {
+          collected.set(absolute, {
+            source: 'tiktok',
+            sourceUrl: absolute,
+            placeName: place?.name || '',
+            placeId: place?.placeId || '',
+            text: String(caption || '').replace(/\s+/g, ' ').trim(),
+            author: String(author || '').replace(/\s+/g, ' ').trim(),
+            likeText: String(likeTxt || '').replace(/\s+/g, ' ').trim(),
+          });
+        }
       }
+
+      if (collected.size >= limit) break;
+      await sleep(700 + Math.floor(Math.random() * 600));
     }
   });
-  return out;
+
+  return Array.from(collected.values()).slice(0, limit);
 }
