@@ -45,7 +45,7 @@ app.post("/api/scrape/tiktok", async (req, res) => {
       });
     }
 
-    res.json(results);
+    res.json(Array.isArray(req.body) ? results : results[0]);
   } catch (err) {
     console.error(err);
     res.status(500).json({ ok: false, error: String(err?.message || err) });
