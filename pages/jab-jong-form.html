@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>JabJong – Mini Form (LIFF)</title>
+  <title>JabJong – Mini Form (Restaurants Only)</title>
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   <style>
     :root{
@@ -71,50 +71,27 @@
 <body>
   <header>
     <div class="head">
-      <div class="logo"><img src="./pages/images/logo.png" alt="Logo" class="logo"></div>
+      <div class="logo"><img src="./images/logo.png" alt="Logo" class="logo"></div>
       <div>
-        <h1>แบบฟอร์มค้นหาร้านอาหาร / ที่พัก</h1>
-        <div class="help">กรอกประเภทอาหาร/ที่พัก + พื้นที่ + งบขั้นต่ำ-สูงสุด เพื่อเปิดปุ่มค้นหา</div>
+        <h1>แบบฟอร์มค้นหาร้านอาหาร</h1>
+        <div class="help">เลือกประเภทอาหาร + พื้นที่ + งบขั้นต่ำ-สูงสุด เพื่อเปิดปุ่มค้นหา</div>
       </div>
     </div>
   </header>
 
   <main class="wrap">
-    <!-- STEP 1: ประเภทอาหาร / ที่พัก -->
+    <!-- CUISINE -->
     <section class="card" id="sec-type">
-      <h2>คุณอยากหาอะไร</h2>
-      <div class="row">
-        <button class="btn ghost" type="button" data-kind="restaurant">🍽️ ร้านอาหาร</button>
-        <button class="btn ghost" type="button" data-kind="hotel">🛏️ ที่พัก</button>
-      </div>
-
-      <!-- Restaurant controls -->
-      <div id="type-restaurant" style="margin-top:12px;">
-        <label>ประเภทอาหาร (เลือกหนึ่ง หรือพิมพ์เอง)</label>
-        <select id="cuisineSelect">
-          <option value="">— เลือกจากรายการ —</option>
-        </select>
-        <div class="hint" style="margin-top:6px">หรือ</div>
-        <input id="cuisineFree" type="text" placeholder="เช่น เจ, ปิ้งย่าง, ญี่ปุ่น, กาแฟ" />
-        <div class="hint">เลือกจากรายการจะปิดการพิมพ์ • พิมพ์เองจะยกเลิกการเลือกจากรายการ</div>
-      </div>
-
-      <!-- Hotel controls -->
-      <div id="type-hotel" style="display:none; margin-top:12px;">
-        <label for="hotelType">ประเภทที่พัก</label>
-        <select id="hotelType">
-          <option value="any">ไม่ระบุ</option>
-          <option value="hotel">Hotel</option>
-          <option value="hostel">Hostel</option>
-          <option value="resort">Resort</option>
-          <option value="guest_house">Guest House</option>
-          <option value="villa">Villa</option>
-          <option value="bnb">B&B</option>
-        </select>
-      </div>
+      <h2>ประเภทอาหาร</h2>
+      <select id="cuisineSelect">
+        <option value="">— เลือกจากรายการ —</option>
+      </select>
+      <div class="hint" style="margin-top:6px">หรือ</div>
+      <input id="cuisineFree" type="text" placeholder="เช่น เจ, ปิ้งย่าง, ญี่ปุ่น, กาแฟ" />
+      <div class="hint">เลือกจากรายการจะปิดการพิมพ์ • พิมพ์เองจะยกเลิกการเลือกจากรายการ</div>
     </section>
 
-    <!-- STEP 2: พื้นที่ / โลเคชัน -->
+    <!-- LOCATION -->
     <section class="card" id="sec-location">
       <h2>พื้นที่ที่ต้องการ</h2>
       <label for="locationText">พิมพ์สถานที่ (ถนน/เขต/แลนด์มาร์ก)</label>
@@ -130,7 +107,7 @@
       <input id="radius" type="range" min="1" max="25" value="2" step="1" style="width:100%" />
     </section>
 
-    <!-- STEP 3: งบประมาณ / เงื่อนไข -->
+    <!-- BUDGET / FILTERS -->
     <section class="card" id="sec-filters">
       <h2>งบประมาณ & เงื่อนไข</h2>
       <div class="row">
@@ -151,8 +128,8 @@
         </label>
       </div>
     </section>
-    <!-- STEP 4 removed -->
-    <!-- STEP 5: หมายเหตุเพิ่มเติม -->
+
+    <!-- NOTE -->
     <section class="card" id="sec-note">
       <h2>บอกเราเพิ่ม (ถ้ามี)</h2>
       <textarea id="note" rows="3" placeholder="เช่น อยากได้เงียบ ๆ, มีที่จอดรถ, รับเงินสด"></textarea>
@@ -167,9 +144,9 @@
   <script>
     // =============== CONFIG ===============
     const LIFF_ID = "2008021094-3eKlOOb7";
-    const WEBHOOK_URL = "https://primary-production-b2936.up.railway.app/webhook-test/jab-jong";
+    const WEBHOOK_URL = "https://primary-production-b2936.up.railway.app/webhook/jab-jong";
 
-    // ชุดตัวเลือกยอดนิยม
+    // Presets เฉพาะอาหาร
     const CUISINE_PRESETS = [
       "เจ", "มังสวิรัติ", "ปิ้งย่าง", "ชาบู", "บุฟเฟ่ต์", "ตามสั่ง", "อีสาน", "เหนือ",
       "ไทย", "ซีฟู้ด", "ญี่ปุ่น", "เกาหลี", "จีน", "ฮาลาล", "เวียดนาม", "อินเดีย",
@@ -178,13 +155,12 @@
 
     // =============== STATE ===============
     const state = {
-      kind: "restaurant",     // "restaurant" | "hotel"
-      cuisine: "",            // เลือกได้ทีละหนึ่ง หรือพิมพ์เอง
-      hotelType: "any",
+      kind: "restaurant",     // fix ให้เป็นร้านอาหารเท่านั้น
+      cuisine: "",
       lat: null, lng: null, locationText: "",
       radiusKm: 2,
       priceMin: null, priceMax: null, openNow: false,
-            note: "",
+      note: "",
       userId: null,
     };
 
@@ -192,10 +168,8 @@
     const $ = (sel, p=document) => p.querySelector(sel);
     const $$ = (sel, p=document) => [...p.querySelectorAll(sel)];
 
-    const btnsKind    = $$("[data-kind]");
     const cuisineSelect = $("#cuisineSelect");
     const cuisineFree   = $("#cuisineFree");
-    const hotelType   = $("#hotelType");
 
     const locationText = $("#locationText");
     const btnGeo     = $("#btnGeo");
@@ -209,7 +183,7 @@
     const priceMax   = $("#priceMax");
     const openNow    = $("#openNow");
 
-        const note       = $("#note");
+    const note       = $("#note");
 
     const summary    = $("#summary");
     const btnSubmit  = $("#btnSubmit");
@@ -220,37 +194,24 @@
         .concat(CUISINE_PRESETS.map(x => `<option value="${x}">${x}</option>`));
       cuisineSelect.innerHTML = opts.join("");
     }
-    function setKind(k){
-      state.kind = k;
-      btnsKind.forEach(b => b.classList.toggle("brand", b.dataset.kind===k));
-      $("#type-restaurant").style.display = (k==="restaurant")?"block":"none";
-      $("#type-hotel").style.display = (k==="hotel")?"block":"none";
-      syncLocationControls();
-      updateSummary();
-    }
 
     // =============== HANDLERS ===============
-    btnsKind.forEach(b => b.addEventListener("click", () => setKind(b.dataset.kind)));
-
-    // เลือกจาก dropdown → เซ็ตค่า และปิดช่องพิมพ์
     cuisineSelect.addEventListener("change", () => {
       const v = cuisineSelect.value.trim();
       state.cuisine = v;
       cuisineFree.value = "";
-      cuisineFree.disabled = !!v; // ถ้าเลือก dropdown จะปิดการพิมพ์
+      cuisineFree.disabled = !!v;
       updateSummary();
     });
 
-    // พิมพ์เอง → เคลียร์ dropdown
     cuisineFree.addEventListener("input", () => {
       const v = cuisineFree.value.trim();
       state.cuisine = v;
-      if (v) cuisineSelect.value = ""; // ยกเลิกการเลือกจาก dropdown
-      cuisineFree.disabled = false;    // เปิดให้พิมพ์
+      if (v) cuisineSelect.value = "";
+      cuisineFree.disabled = false;
       updateSummary();
     });
 
-    hotelType.addEventListener("change", () => { state.hotelType = hotelType.value; updateSummary(); });
     locationText.addEventListener("input", () => { state.locationText = locationText.value.trim(); syncLocationControls(); updateSummary(); });
     radius.addEventListener("input", () => { state.radiusKm = +radius.value; radiusKm.textContent = state.radiusKm; updateSummary(); });
     priceMin.addEventListener("input", () => { state.priceMin = priceMin.value? +priceMin.value : null; updateSummary(); });
@@ -272,7 +233,6 @@
       }, {enableHighAccuracy:true, timeout:8000, maximumAge:0});
     });
 
-    // ลบพิกัด → เปิดให้กรอกข้อความ/ใช้ปุ่มดึงพิกัดได้ใหม่
     btnClearGeo.addEventListener("click", () => {
       state.lat = null; state.lng = null;
       geoOut.innerHTML = "";
@@ -280,24 +240,9 @@
       updateSummary();
     });
 
-    function labelHotel(v){
-      switch(v){
-        case "hotel": return "โรงแรม";
-        case "hostel": return "โฮสเทล";
-        case "resort": return "รีสอร์ท";
-        case "guest_house": return "เกสต์เฮาส์";
-        case "villa": return "วิลล่า";
-        case "bnb": return "บีแอนด์บี";
-        default: return "ที่พัก";
-      }
-    }
-
-    
     function syncLocationControls(){
       const hasGeo = !!(state.lat && state.lng);
       const hasText = !!state.locationText;
-
-      // ถ้ามีพิกัด → ปิดการพิมพ์ location และปุ่มดึงพิกัด, โชว์ปุ่มลบพิกัด
       if (hasGeo) {
         locationText.value = "";
         locationText.disabled = true;
@@ -307,7 +252,6 @@
           geoOut.innerHTML = `พบพิกัด: <span class="pill mono">${state.lat}, ${state.lng}</span>`;
         }
       } else {
-        // ไม่มีพิกัด → เปิดการพิมพ์, ซ่อนปุ่มลบพิกัด, ปุ่มดึงพิกัดจะปิดถ้ามีข้อความ
         locationText.disabled = false;
         btnClearGeo.style.display = "none";
         btnGeo.disabled = hasText;
@@ -315,27 +259,17 @@
       }
     }
 
-    
-    
     function isFormValid(){
-      if (state.kind === "restaurant"){
-        return !!( (state.cuisine && state.cuisine.length>0) 
-                   && (state.locationText || (state.lat && state.lng))
-                   && (state.priceMin!=null && state.priceMax!=null) );
-      }
-      if (state.kind === "hotel"){
-        return !!( state.hotelType !== "any"
-                   && (state.locationText || (state.lat && state.lng))
-                   && (state.priceMin!=null && state.priceMax!=null) );
-      }
-      return false;
+      return !!(
+        (state.cuisine && state.cuisine.length>0) &&
+        (state.locationText || (state.lat && state.lng)) &&
+        (state.priceMin!=null && state.priceMax!=null)
+      );
     }
-
-
 
     function updateSummary(){
       const parts = [];
-      parts.push(state.kind === "restaurant" ? `หาร้านอาหาร` : `หา${labelHotel(state.hotelType)}`);
+      parts.push(`หาร้านอาหาร`);
       const c = (state.cuisine || "").trim();
       if (c) parts.push(`หมวด: ${c}`);
       if (state.locationText) parts.push(`แถว: ${state.locationText}`);
@@ -346,22 +280,18 @@
       }
       if (state.openNow) parts.push(`เปิดอยู่ตอนนี้`);
       summary.textContent = parts.join(" • ");
-
-      // control submit button
       btnSubmit.disabled = !isFormValid();
     }
 
     function payload(){
       return {
-        kind: state.kind,
+        kind: "restaurant",
         cuisine: state.cuisine || null,
-        hotelType: state.hotelType,
         locationText: state.locationText || null,
         lat: state.lat, lng: state.lng,
         radiusKm: state.radiusKm,
         budget: {min: state.priceMin, max: state.priceMax},
         openNow: state.openNow,
-        
         note: state.note || null,
         userId: state.userId,
         source: "liff-mini-form",
@@ -398,12 +328,11 @@
 
     btnSubmit.addEventListener("click", submit);
 
-    // =============== LIFF INIT ===============
     (async function init(){
       try{
         if (window.liff){
           await liff.init({ liffId: LIFF_ID });
-                    if (liff.isLoggedIn && !liff.isLoggedIn()) liff.login();
+          if (liff.isLoggedIn && !liff.isLoggedIn()) liff.login();
           try{
             const prof = await liff.getProfile();
             state.userId = prof?.userId || null;
@@ -412,7 +341,6 @@
       }catch(err){
         console.warn('LIFF init error', err);
       }finally{
-        setKind(state.kind);
         renderCuisineSelect();
         syncLocationControls();
         updateSummary();
